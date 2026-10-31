@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
   <title>FLIPSHIFT</title>
+
   <style>
     html, body {
       margin: 0;
@@ -11,7 +12,7 @@
       width: 100%;
       height: 100%;
       overflow: hidden;
-      background: #070A12;
+      background: #050816;
       touch-action: none;
       font-family: Arial, sans-serif;
     }
@@ -20,22 +21,16 @@
       display: block;
       width: 100vw;
       height: 100vh;
-      background: #070A12;
+      background: #050816;
+      cursor: pointer;
     }
   </style>
 </head>
+
 <body>
 <canvas id="game"></canvas>
 
 <script>
-/*
-  FLIPSHIFT — простая версия в одном HTML-файле.
-  Управление:
-  Space / Arrow Up / клик / тап — сменить гравитацию
-  ESC — пауза
-  R — рестарт
-*/
-
 const canvas = document.getElementById("game");
 const ctx = canvas.getContext("2d");
 
@@ -59,22 +54,24 @@ window.addEventListener("resize", resize);
 resize();
 
 const COLORS = {
-  bg: "#070A12",
-  grid: "rgba(96, 165, 250, 0.15)",
-  panel: "#111827",
-  panel2: "#1F2937",
+  bg: "#050816",
+  bg2: "#070A12",
+  grid: "rgba(96,165,250,0.13)",
   text: "#F8FAFC",
   muted: "#94A3B8",
-  player: "#38BDF8",
-  player2: "#A78BFA",
-  platform: "#1F2937",
+  cyan: "#38BDF8",
+  purple: "#A78BFA",
+  pink: "#FB7185",
+  green: "#34D399",
+  yellow: "#FBBF24",
+  platform: "#111827",
+  platform2: "#1F2937",
   platformEdge: "#60A5FA",
-  danger: "#FB7185",
-  finish: "#34D399",
-  warning: "#FBBF24",
+  panel: "rgba(17,24,39,0.86)",
+  panelSolid: "#111827",
 };
 
-const SAVE_KEY = "flipshift_simple_save";
+const SAVE_KEY = "flipshift_neon_save_v2";
 
 function loadSave() {
   try {
@@ -230,6 +227,7 @@ let level = null;
 let player = null;
 let gravity = 1;
 let cameraX = 0;
+let targetCameraX = 0;
 let startTime = 0;
 let elapsed = 0;
 let lastTime = performance.now();
@@ -238,6 +236,63 @@ let movingRects = [];
 let paused = false;
 let deathMessage = "";
 let victoryStars = 0;
+let particles = [];
+let trail = [];
+let starsBg = [];
+let mouse = { x: -9999, y: -9999 };
+let shakeTime = 0;
+let shakePower = 0;
+let flashAlpha = 0;
+let flashColor = "rgba(56,189,248,";
+let audioCtx = null;
+
+for (let i = 0; i < 120; i++) {
+  starsBg.push({
+    x: Math.random() * BASE_W,
+    y: Math.random() * BASE_H,
+    r: Math.random() * 1.8 + 0.4,
+    a: Math.random() * 0.6 + 0.15,
+    s: Math.random() * 0.4 + 0.1,
+  });
+}
+
+function playSound(type) {
+  try {
+    if (!audioCtx) {
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    }
+
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+
+    osc.connect(gain);
+    gain.connect(audioCtx.destination);
+
+    if (type === "flip") {
+      osc.frequency.value = gravity > 0 ? 420 : 620;
+      gain.gain.value = 0.045;
+      osc.type = "sine";
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.07);
+    }
+
+    if (type === "dead") {
+      osc.frequency.value = 140;
+      gain.gain.value = 0.07;
+      osc.type = "sawtooth";
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.16);
+    }
+
+    if (type === "win") {
+      osc.frequency.value = 660;
+      gain.gain.value = 0.06;
+      osc.type = "triangle";
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.18);
+    }
+  } catch {}
+}
 
 function rectsOverlap(a, b) {
   return (
@@ -271,12 +326,17 @@ function startLevel(index) {
 
   gravity = level.player.gravity;
   cameraX = 0;
+  targetCameraX = 0;
   startTime = performance.now();
   elapsed = 0;
   deathMessage = "";
   victoryStars = 0;
   movingRects = level.movers.map(m => ({ ...m, cx: m.x, cy: m.y }));
+  particles = [];
+  trail = [];
   paused = false;
+  flashAlpha = 0.35;
+  flashColor = "rgba(56,189,248,";
   state = "game";
 }
 
@@ -294,8 +354,22 @@ function nextLevel() {
 
 function flipGravity() {
   if (state !== "game" || paused) return;
+
   gravity *= -1;
   player.vy = 0;
+
+  flashAlpha = 0.28;
+  flashColor = gravity > 0 ? "rgba(56,189,248," : "rgba(167,139,250,";
+
+  spawnParticles(
+    player.x + player.w / 2,
+    player.y + player.h / 2,
+    22,
+    gravity > 0 ? COLORS.cyan : COLORS.purple,
+    220
+  );
+
+  playSound("flip");
 }
 
 function completeLevel() {
@@ -310,14 +384,80 @@ function completeLevel() {
   if (save.unlocked > levels.length) save.unlocked = levels.length;
 
   saveGame();
+
+  spawnParticles(player.x, player.y, 80, COLORS.green, 360);
+  flashAlpha = 0.35;
+  flashColor = "rgba(52,211,153,";
+  playSound("win");
 }
 
 function failLevel(reason) {
+  if (state !== "game") return;
+
   state = "dead";
   deathMessage = reason || "CRASHED";
+
+  spawnParticles(player.x + player.w / 2, player.y + player.h / 2, 70, COLORS.pink, 420);
+
+  shakeTime = 0.35;
+  shakePower = 13;
+  flashAlpha = 0.32;
+  flashColor = "rgba(251,113,133,";
+
+  playSound("dead");
+}
+
+function spawnParticles(x, y, count, color, power) {
+  for (let i = 0; i < count; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = Math.random() * power + 40;
+
+    particles.push({
+      x,
+      y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp,
+      life: Math.random() * 0.45 + 0.35,
+      maxLife: Math.random() * 0.45 + 0.35,
+      size: Math.random() * 4 + 2,
+      color
+    });
+  }
+}
+
+function updateParticles(dt) {
+  for (const p of particles) {
+    p.x += p.vx * dt;
+    p.y += p.vy * dt;
+    p.vx *= 0.98;
+    p.vy *= 0.98;
+    p.life -= dt;
+  }
+
+  particles = particles.filter(p => p.life > 0);
 }
 
 function updateGame(dt) {
+  updateParticles(dt);
+
+  if (flashAlpha > 0) {
+    flashAlpha -= dt * 1.8;
+    if (flashAlpha < 0) flashAlpha = 0;
+  }
+
+  if (shakeTime > 0) {
+    shakeTime -= dt;
+    if (shakeTime < 0) shakeTime = 0;
+  }
+
+  for (const s of starsBg) {
+    s.x -= s.s * dt * 20;
+    if (s.x < -5) {
+      s.x = BASE_W + 5;
+      s.y = Math.random() * BASE_H;
+    }
+  }
+
   if (state !== "game" || paused) return;
 
   elapsed = (performance.now() - startTime) / 1000;
@@ -327,23 +467,33 @@ function updateGame(dt) {
   player.vx = level.player.speed;
   player.vy += gravity * 1300 * dt;
 
-  if (player.vy > 1200) player.vy = 1200;
-  if (player.vy < -1200) player.vy = -1200;
+  if (player.vy > 1250) player.vy = 1250;
+  if (player.vy < -1250) player.vy = -1250;
 
   player.x += player.vx * dt;
   player.y += player.vy * dt;
-  player.rotation += 4 * dt;
+  player.rotation += 4.2 * dt;
+
+  trail.push({
+    x: player.x + player.w / 2,
+    y: player.y + player.h / 2,
+    r: player.rotation,
+    life: 0.35
+  });
+
+  for (const t of trail) t.life -= dt;
+  trail = trail.filter(t => t.life > 0).slice(-18);
 
   for (const p of level.platforms) {
     if (rectsOverlap(player, p)) {
       if (gravity > 0) {
         const prevBottom = prevY + player.h;
-        if (prevBottom <= p.y + 8 && player.vy >= 0) {
+        if (prevBottom <= p.y + 10 && player.vy >= 0) {
           player.y = p.y - player.h;
           player.vy = 0;
         }
       } else {
-        if (prevY >= p.y + p.h - 8 && player.vy <= 0) {
+        if (prevY >= p.y + p.h - 10 && player.vy <= 0) {
           player.y = p.y + p.h;
           player.vy = 0;
         }
@@ -365,7 +515,7 @@ function updateGame(dt) {
     m.cy = m.y + (m.toY - m.y) * k;
 
     if (rectsOverlap(player, { x: m.cx, y: m.cy, w: m.w, h: m.h })) {
-      failLevel("LASER BLOCK");
+      failLevel("MOVING BLOCK");
     }
   }
 
@@ -381,25 +531,65 @@ function updateGame(dt) {
     failLevel("OUT OF WORLD");
   }
 
-  cameraX = player.x - 380;
-  if (cameraX < 0) cameraX = 0;
-  if (cameraX > level.width - BASE_W) cameraX = level.width - BASE_W;
+  targetCameraX = player.x - 380;
+  if (targetCameraX < 0) targetCameraX = 0;
+  if (targetCameraX > level.width - BASE_W) targetCameraX = level.width - BASE_W;
+
+  cameraX += (targetCameraX - cameraX) * 0.12;
 }
 
 function clearScreen() {
   ctx.setTransform(1, 0, 0, 1, 0, 0);
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  ctx.fillStyle = COLORS.bg;
+
+  const bg = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+  bg.addColorStop(0, "#050816");
+  bg.addColorStop(0.5, "#070A12");
+  bg.addColorStop(1, "#111827");
+
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.setTransform(scale, 0, 0, scale, offsetX, offsetY);
+
+  if (shakeTime > 0) {
+    const sx = (Math.random() - 0.5) * shakePower * shakeTime * 3;
+    const sy = (Math.random() - 0.5) * shakePower * shakeTime * 3;
+    ctx.translate(sx, sy);
+  }
 }
 
-function drawGrid(worldWidth = BASE_W) {
+function drawBackground() {
+  ctx.save();
+
+  for (const s of starsBg) {
+    ctx.globalAlpha = s.a;
+    ctx.fillStyle = "#FFFFFF";
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.globalAlpha = 1;
+
+  const g1 = ctx.createRadialGradient(260, 160, 20, 260, 160, 330);
+  g1.addColorStop(0, "rgba(56,189,248,0.22)");
+  g1.addColorStop(1, "rgba(56,189,248,0)");
+  ctx.fillStyle = g1;
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
+  const g2 = ctx.createRadialGradient(1040, 560, 20, 1040, 560, 360);
+  g2.addColorStop(0, "rgba(167,139,250,0.20)");
+  g2.addColorStop(1, "rgba(167,139,250,0)");
+  ctx.fillStyle = g2;
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+
   ctx.strokeStyle = COLORS.grid;
   ctx.lineWidth = 1;
 
-  for (let x = -cameraX % 80; x < BASE_W; x += 80) {
+  const gridOffset = state === "game" && level ? -cameraX % 80 : 0;
+
+  for (let x = gridOffset; x < BASE_W; x += 80) {
     ctx.beginPath();
     ctx.moveTo(x, 0);
     ctx.lineTo(x, BASE_H);
@@ -413,11 +603,7 @@ function drawGrid(worldWidth = BASE_W) {
     ctx.stroke();
   }
 
-  const grad = ctx.createRadialGradient(250, 170, 20, 250, 170, 260);
-  grad.addColorStop(0, "rgba(56,189,248,0.20)");
-  grad.addColorStop(1, "rgba(56,189,248,0)");
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, BASE_W, BASE_H);
+  ctx.restore();
 }
 
 function drawText(text, x, y, size = 28, color = COLORS.text, align = "center") {
@@ -436,19 +622,6 @@ function drawSmallText(text, x, y, size = 20, color = COLORS.muted, align = "cen
   ctx.fillText(text, x, y);
 }
 
-function button(label, x, y, w, h, action, locked = false) {
-  buttons.push({ x, y, w, h, action, locked });
-
-  ctx.fillStyle = locked ? "#334155" : COLORS.panel;
-  roundRect(x, y, w, h, 14, true, false);
-
-  ctx.strokeStyle = locked ? "#475569" : COLORS.platformEdge;
-  ctx.lineWidth = 2;
-  roundRect(x, y, w, h, 14, false, true);
-
-  drawText(label, x + w / 2, y + h / 2, 24, locked ? COLORS.muted : COLORS.text);
-}
-
 function roundRect(x, y, w, h, r, fill, stroke) {
   ctx.beginPath();
   ctx.moveTo(x + r, y);
@@ -461,67 +634,148 @@ function roundRect(x, y, w, h, r, fill, stroke) {
   ctx.lineTo(x, y + r);
   ctx.quadraticCurveTo(x, y, x + r, y);
   ctx.closePath();
+
   if (fill) ctx.fill();
   if (stroke) ctx.stroke();
+}
+
+function isHover(x, y, w, h) {
+  return mouse.x >= x && mouse.x <= x + w && mouse.y >= y && mouse.y <= y + h;
+}
+
+function button(label, x, y, w, h, action, locked = false) {
+  buttons.push({ x, y, w, h, action, locked });
+
+  const hover = isHover(x, y, w, h) && !locked;
+
+  ctx.save();
+
+  ctx.shadowColor = locked ? "transparent" : hover ? COLORS.cyan : "rgba(56,189,248,0.25)";
+  ctx.shadowBlur = hover ? 28 : 14;
+
+  const grad = ctx.createLinearGradient(x, y, x + w, y + h);
+  if (locked) {
+    grad.addColorStop(0, "#1E293B");
+    grad.addColorStop(1, "#334155");
+  } else if (hover) {
+    grad.addColorStop(0, "#1F2937");
+    grad.addColorStop(1, "#0F172A");
+  } else {
+    grad.addColorStop(0, "#111827");
+    grad.addColorStop(1, "#0F172A");
+  }
+
+  ctx.fillStyle = grad;
+  roundRect(x, y, w, h, 16, true, false);
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = locked ? "#475569" : hover ? COLORS.cyan : COLORS.platformEdge;
+  ctx.lineWidth = hover ? 3 : 2;
+  roundRect(x, y, w, h, 16, false, true);
+
+  drawText(label, x + w / 2, y + h / 2, hover ? 25 : 24, locked ? COLORS.muted : COLORS.text);
+
+  ctx.restore();
+}
+
+function drawLogo() {
+  ctx.save();
+  ctx.translate(BASE_W / 2, 105);
+
+  ctx.shadowColor = COLORS.cyan;
+  ctx.shadowBlur = 28;
+
+  ctx.fillStyle = COLORS.cyan;
+  ctx.beginPath();
+  ctx.moveTo(0, -52);
+  ctx.lineTo(48, 0);
+  ctx.lineTo(0, 52);
+  ctx.lineTo(-48, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.shadowColor = COLORS.purple;
+  ctx.shadowBlur = 18;
+
+  ctx.fillStyle = COLORS.purple;
+  ctx.beginPath();
+  ctx.moveTo(0, -28);
+  ctx.lineTo(26, 0);
+  ctx.lineTo(0, 28);
+  ctx.lineTo(-26, 0);
+  ctx.closePath();
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = COLORS.text;
+  ctx.beginPath();
+  ctx.arc(0, 0, 8, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.restore();
 }
 
 function drawMenu() {
   buttons = [];
   cameraX = 0;
-  drawGrid();
 
-  drawText("FLIPSHIFT", BASE_W / 2, 120, 76, COLORS.text);
-  drawSmallText("Меняй гравитацию. Обходи ловушки. Доберись до финиша.", BASE_W / 2, 190, 24);
+  drawBackground();
+  drawLogo();
 
-  button("ИГРАТЬ", BASE_W / 2 - 160, 285, 320, 66, () => {
+  drawText("FLIPSHIFT", BASE_W / 2, 195, 72, COLORS.text);
+  drawSmallText("Меняй гравитацию. Обходи ловушки. Доберись до портала.", BASE_W / 2, 252, 24);
+
+  button("ИГРАТЬ", BASE_W / 2 - 170, 315, 340, 68, () => {
     startLevel(Math.min(save.unlocked - 1, levels.length - 1));
   });
 
-  button("ВЫБОР УРОВНЯ", BASE_W / 2 - 160, 375, 320, 66, () => {
+  button("ВЫБОР УРОВНЯ", BASE_W / 2 - 170, 405, 340, 68, () => {
     state = "levels";
   });
 
-  button("СБРОСИТЬ ПРОГРЕСС", BASE_W / 2 - 160, 465, 320, 66, () => {
+  button("СБРОСИТЬ ПРОГРЕСС", BASE_W / 2 - 170, 495, 340, 68, () => {
     localStorage.removeItem(SAVE_KEY);
     save = loadSave();
   });
 
-  drawSmallText(`Открыт уровень: ${save.unlocked} / ${levels.length}`, BASE_W / 2, 590, 22, COLORS.warning);
-  drawSmallText("Space / Arrow Up / клик / тап — сменить гравитацию", BASE_W / 2, 640, 20);
+  drawSmallText(`Открыт уровень: ${save.unlocked} / ${levels.length}`, BASE_W / 2, 615, 22, COLORS.yellow);
+  drawSmallText("Space / Arrow Up / клик / тап — сменить гравитацию", BASE_W / 2, 660, 20);
 }
 
 function drawLevelSelect() {
   buttons = [];
-  drawGrid();
+
+  drawBackground();
 
   drawText("ВЫБОР УРОВНЯ", BASE_W / 2, 80, 52);
 
   const startX = 240;
-  const startY = 190;
+  const startY = 210;
   const gapX = 200;
-  const gapY = 145;
 
   for (let i = 0; i < levels.length; i++) {
     const lvl = levels[i];
-    const col = i % 5;
-    const row = Math.floor(i / 5);
-    const x = startX + col * gapX;
-    const y = startY + row * gapY;
+    const x = startX + i * gapX;
+    const y = startY;
 
     const unlocked = lvl.id <= save.unlocked;
     const stars = save.stars[lvl.id] || 0;
 
-    button(unlocked ? `LEVEL ${lvl.id}` : "LOCKED", x - 75, y - 45, 150, 90, () => {
+    button(unlocked ? `LEVEL ${lvl.id}` : "LOCKED", x - 75, y - 50, 150, 100, () => {
       if (unlocked) startLevel(i);
     }, !unlocked);
 
     drawSmallText(
       unlocked ? "★".repeat(stars) + "☆".repeat(3 - stars) : "---",
       x,
-      y + 22,
-      20,
-      unlocked ? COLORS.warning : COLORS.muted
+      y + 30,
+      21,
+      unlocked ? COLORS.yellow : COLORS.muted
     );
+
+    if (unlocked) {
+      drawSmallText(lvl.name, x, y + 85, 16, COLORS.muted);
+    }
   }
 
   button("НАЗАД", BASE_W / 2 - 130, 610, 260, 62, () => {
@@ -532,51 +786,15 @@ function drawLevelSelect() {
 function drawGame() {
   buttons = [];
 
-  drawGrid(level.width);
+  drawBackground();
 
   ctx.save();
   ctx.translate(-cameraX, 0);
 
-  for (const p of level.platforms) {
-    ctx.fillStyle = COLORS.platform;
-    ctx.fillRect(p.x, p.y, p.w, p.h);
-
-    ctx.strokeStyle = COLORS.platformEdge;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(p.x, p.y, p.w, p.h);
-  }
-
-  for (const s of level.spikes) {
-    drawSpike(s);
-  }
-
-  for (const m of movingRects) {
-    ctx.fillStyle = COLORS.danger;
-    ctx.fillRect(m.cx, m.cy, m.w, m.h);
-
-    ctx.strokeStyle = "rgba(255,255,255,0.4)";
-    ctx.lineWidth = 3;
-    ctx.strokeRect(m.cx, m.cy, m.w, m.h);
-  }
-
-  const f = level.finish;
-  ctx.fillStyle = COLORS.finish;
-  ctx.globalAlpha = 0.85;
-  ctx.fillRect(f.x, f.y, f.w, f.h);
-  ctx.globalAlpha = 1;
-  ctx.strokeStyle = "rgba(255,255,255,0.5)";
-  ctx.lineWidth = 4;
-  ctx.strokeRect(f.x, f.y, f.w, f.h);
-
-  ctx.save();
-  ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
-  ctx.rotate(player.rotation);
-  ctx.fillStyle = COLORS.player;
-  ctx.fillRect(-player.w / 2, -player.h / 2, player.w, player.h);
-  ctx.strokeStyle = COLORS.player2;
-  ctx.lineWidth = 4;
-  ctx.strokeRect(-player.w / 2, -player.h / 2, player.w, player.h);
-  ctx.restore();
+  drawLevelObjects();
+  drawTrail();
+  drawPlayer();
+  drawParticles();
 
   ctx.restore();
 
@@ -587,8 +805,106 @@ function drawGame() {
   }
 }
 
+function drawLevelObjects() {
+  for (const p of level.platforms) {
+    const grad = ctx.createLinearGradient(p.x, p.y, p.x, p.y + p.h);
+    grad.addColorStop(0, COLORS.platform2);
+    grad.addColorStop(1, COLORS.platform);
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(p.x, p.y, p.w, p.h);
+
+    ctx.strokeStyle = COLORS.platformEdge;
+    ctx.lineWidth = 2;
+    ctx.strokeRect(p.x, p.y, p.w, p.h);
+
+    ctx.shadowColor = COLORS.cyan;
+    ctx.shadowBlur = 10;
+    ctx.strokeStyle = "rgba(96,165,250,0.45)";
+    ctx.beginPath();
+    ctx.moveTo(p.x, p.y);
+    ctx.lineTo(p.x + p.w, p.y);
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  for (const s of level.spikes) {
+    drawSpike(s);
+  }
+
+  for (const m of movingRects) {
+    ctx.save();
+    ctx.shadowColor = COLORS.pink;
+    ctx.shadowBlur = 24;
+
+    const grad = ctx.createLinearGradient(m.cx, m.cy, m.cx + m.w, m.cy + m.h);
+    grad.addColorStop(0, "#FB7185");
+    grad.addColorStop(1, "#BE123C");
+
+    ctx.fillStyle = grad;
+    ctx.fillRect(m.cx, m.cy, m.w, m.h);
+
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = "rgba(255,255,255,0.45)";
+    ctx.lineWidth = 3;
+    ctx.strokeRect(m.cx, m.cy, m.w, m.h);
+
+    ctx.restore();
+  }
+
+  drawFinishPortal(level.finish);
+}
+
+function drawFinishPortal(f) {
+  const cx = f.x + f.w / 2;
+  const cy = f.y + f.h / 2;
+  const time = performance.now() / 1000;
+  const pulse = Math.sin(time * 5) * 0.08 + 1;
+
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.scale(pulse, pulse);
+
+  ctx.shadowColor = COLORS.green;
+  ctx.shadowBlur = 35;
+
+  const grad = ctx.createRadialGradient(0, 0, 5, 0, 0, 90);
+  grad.addColorStop(0, "rgba(52,211,153,0.9)");
+  grad.addColorStop(0.45, "rgba(52,211,153,0.35)");
+  grad.addColorStop(1, "rgba(52,211,153,0)");
+
+  ctx.fillStyle = grad;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, f.w * 0.65, f.h * 0.58, 0, 0, Math.PI * 2);
+  ctx.fill();
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = COLORS.green;
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, f.w * 0.45, f.h * 0.48, 0, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.strokeStyle = "rgba(255,255,255,0.55)";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.ellipse(0, 0, f.w * 0.28, f.h * 0.32, time, 0, Math.PI * 2);
+  ctx.stroke();
+
+  ctx.restore();
+}
+
 function drawSpike(s) {
-  ctx.fillStyle = COLORS.danger;
+  ctx.save();
+
+  ctx.shadowColor = COLORS.pink;
+  ctx.shadowBlur = 16;
+
+  const grad = ctx.createLinearGradient(s.x, s.y, s.x, s.y + s.h);
+  grad.addColorStop(0, "#FB7185");
+  grad.addColorStop(1, "#881337");
+
+  ctx.fillStyle = grad;
   ctx.strokeStyle = "rgba(255,255,255,0.25)";
   ctx.lineWidth = 2;
 
@@ -607,23 +923,92 @@ function drawSpike(s) {
   ctx.closePath();
   ctx.fill();
   ctx.stroke();
+
+  ctx.restore();
+}
+
+function drawTrail() {
+  for (let i = 0; i < trail.length; i++) {
+    const t = trail[i];
+    const a = t.life / 0.35;
+
+    ctx.save();
+    ctx.globalAlpha = a * 0.28;
+    ctx.translate(t.x, t.y);
+    ctx.rotate(t.r);
+    ctx.fillStyle = gravity > 0 ? COLORS.cyan : COLORS.purple;
+    ctx.fillRect(-21, -21, 42, 42);
+    ctx.restore();
+  }
+}
+
+function drawPlayer() {
+  ctx.save();
+
+  ctx.translate(player.x + player.w / 2, player.y + player.h / 2);
+  ctx.rotate(player.rotation);
+
+  ctx.shadowColor = gravity > 0 ? COLORS.cyan : COLORS.purple;
+  ctx.shadowBlur = 25;
+
+  const grad = ctx.createLinearGradient(-21, -21, 21, 21);
+  grad.addColorStop(0, COLORS.cyan);
+  grad.addColorStop(1, COLORS.purple);
+
+  ctx.fillStyle = grad;
+  ctx.fillRect(-player.w / 2, -player.h / 2, player.w, player.h);
+
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "#FFFFFF";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(-player.w / 2, -player.h / 2, player.w, player.h);
+
+  ctx.strokeStyle = gravity > 0 ? COLORS.cyan : COLORS.purple;
+  ctx.lineWidth = 4;
+  ctx.strokeRect(-player.w / 2 - 4, -player.h / 2 - 4, player.w + 8, player.h + 8);
+
+  ctx.restore();
+}
+
+function drawParticles() {
+  for (const p of particles) {
+    const a = p.life / p.maxLife;
+
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, a);
+    ctx.fillStyle = p.color;
+    ctx.shadowColor = p.color;
+    ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, p.size * a, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
 }
 
 function drawHUD() {
-  ctx.fillStyle = "rgba(17,24,39,0.75)";
-  roundRect(20, 20, 300, 125, 12, true, false);
+  ctx.save();
 
-  drawSmallText(`Уровень ${level.id}: ${level.name}`, 40, 45, 20, COLORS.text, "left");
-  drawSmallText(`Время: ${elapsed.toFixed(2)}s`, 40, 75, 20, COLORS.text, "left");
-  drawSmallText(`Гравитация: ${gravity > 0 ? "ВНИЗ" : "ВВЕРХ"}`, 40, 105, 20, COLORS.text, "left");
-  drawSmallText(`ESC: пауза`, 40, 132, 18, COLORS.muted, "left");
+  ctx.fillStyle = "rgba(17,24,39,0.78)";
+  roundRect(20, 20, 320, 135, 16, true, false);
+
+  ctx.strokeStyle = "rgba(96,165,250,0.55)";
+  ctx.lineWidth = 2;
+  roundRect(20, 20, 320, 135, 16, false, true);
+
+  drawSmallText(`Уровень ${level.id}: ${level.name}`, 42, 48, 20, COLORS.text, "left");
+  drawSmallText(`Время: ${elapsed.toFixed(2)}s`, 42, 80, 20, COLORS.text, "left");
+  drawSmallText(`Гравитация: ${gravity > 0 ? "ВНИЗ" : "ВВЕРХ"}`, 42, 112, 20, gravity > 0 ? COLORS.cyan : COLORS.purple, "left");
+  drawSmallText(`ESC: пауза`, 42, 138, 17, COLORS.muted, "left");
+
+  ctx.restore();
 }
 
 function drawPauseOverlay() {
-  ctx.fillStyle = "rgba(0,0,0,0.55)";
+  ctx.fillStyle = "rgba(0,0,0,0.58)";
   ctx.fillRect(0, 0, BASE_W, BASE_H);
 
-  drawText("ПАУЗА", BASE_W / 2, 230, 56);
+  drawText("ПАУЗА", BASE_W / 2, 230, 58);
   drawSmallText("ESC — продолжить", BASE_W / 2, 305, 24);
   drawSmallText("R — рестарт", BASE_W / 2, 345, 24);
 }
@@ -631,12 +1016,14 @@ function drawPauseOverlay() {
 function drawDead() {
   drawGame();
 
-  ctx.fillStyle = "rgba(0,0,0,0.60)";
+  ctx.fillStyle = "rgba(0,0,0,0.64)";
   ctx.fillRect(0, 0, BASE_W, BASE_H);
 
-  drawText("РАЗБИЛСЯ", BASE_W / 2, 250, 56, COLORS.danger);
-  drawSmallText(deathMessage, BASE_W / 2, 310, 26, COLORS.text);
-  drawSmallText("Нажми Space / R / клик, чтобы начать заново", BASE_W / 2, 380, 24);
+  drawText("РАЗБИЛСЯ", BASE_W / 2, 245, 60, COLORS.pink);
+  drawSmallText(deathMessage, BASE_W / 2, 315, 26, COLORS.text);
+  drawSmallText("Нажми Space / R / клик, чтобы начать заново", BASE_W / 2, 390, 24);
+
+  drawParticles();
 }
 
 function drawVictory() {
@@ -645,10 +1032,21 @@ function drawVictory() {
   ctx.fillStyle = "rgba(0,0,0,0.60)";
   ctx.fillRect(0, 0, BASE_W, BASE_H);
 
-  drawText("УРОВЕНЬ ПРОЙДЕН", BASE_W / 2, 220, 52, COLORS.finish);
+  drawText("УРОВЕНЬ ПРОЙДЕН", BASE_W / 2, 220, 54, COLORS.green);
   drawSmallText(`Время: ${elapsed.toFixed(2)}s`, BASE_W / 2, 295, 26, COLORS.text);
-  drawText("★".repeat(victoryStars) + "☆".repeat(3 - victoryStars), BASE_W / 2, 350, 44, COLORS.warning);
-  drawSmallText("Space / клик — следующий уровень", BASE_W / 2, 430, 24);
+  drawText("★".repeat(victoryStars) + "☆".repeat(3 - victoryStars), BASE_W / 2, 355, 48, COLORS.yellow);
+  drawSmallText("Space / клик — следующий уровень", BASE_W / 2, 440, 24);
+
+  drawParticles();
+}
+
+function drawFlash() {
+  if (flashAlpha <= 0) return;
+
+  ctx.save();
+  ctx.fillStyle = flashColor + flashAlpha + ")";
+  ctx.fillRect(0, 0, BASE_W, BASE_H);
+  ctx.restore();
 }
 
 function render() {
@@ -659,6 +1057,8 @@ function render() {
   else if (state === "game") drawGame();
   else if (state === "dead") drawDead();
   else if (state === "victory") drawVictory();
+
+  drawFlash();
 }
 
 function gameLoop(now) {
@@ -713,6 +1113,14 @@ function handlePointer(event) {
 
 canvas.addEventListener("mousedown", handlePointer);
 canvas.addEventListener("touchstart", handlePointer, { passive: false });
+
+canvas.addEventListener("mousemove", (e) => {
+  mouse = getGameMousePosition(e);
+});
+
+canvas.addEventListener("mouseleave", () => {
+  mouse = { x: -9999, y: -9999 };
+});
 
 window.addEventListener("keydown", (e) => {
   if (e.code === "Space" || e.code === "ArrowUp") {
