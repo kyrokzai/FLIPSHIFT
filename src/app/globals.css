@@ -1,0 +1,191 @@
+@import "tailwindcss";
+
+/*
+ * Визуальный язык FORMIQ: светлая основа, графит для текста и действий,
+ * золото — только как сигнал «ИИ что-то понял» и для фокуса.
+ */
+@theme {
+  --font-sans: "Geologica Variable", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  --color-paper: #f3f4f6;
+  --color-surface: #ffffff;
+  --color-ink: #23262b;
+  --color-ink-soft: #474c54;
+  --color-muted: #676d77;
+  --color-line: #dee1e6;
+  --color-line-strong: #c5c9d0;
+  --color-gold: #b38b2e;
+  --color-gold-deep: #7a5c0e;
+  --color-gold-wash: #f8f2e0;
+  --color-danger: #a1362d;
+  --color-danger-wash: #fbeeec;
+  --color-ok: #2f6b4f;
+
+  --radius-field: 0.625rem;
+  --radius-card: 1.125rem;
+
+  --shadow-lift: 0 1px 0 rgb(35 38 43 / 0.03), 0 18px 40px -22px rgb(35 38 43 / 0.28);
+
+  --animate-settle: settle 0.32s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+@keyframes settle {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    background: var(--color-paper);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-weight: 380;
+    font-feature-settings: "tnum" 1;
+    -webkit-font-smoothing: antialiased;
+    min-height: 100dvh;
+  }
+
+  /* iOS увеличивает страницу при фокусе на полях мельче 16px. */
+  input,
+  textarea,
+  select {
+    font-size: 1rem;
+  }
+
+  button,
+  [role="button"],
+  summary {
+    cursor: pointer;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-gold);
+    outline-offset: 2px;
+    border-radius: 4px;
+  }
+
+  ::selection {
+    background: var(--color-gold-wash);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    min-height: 2.75rem;
+    padding: 0 1.125rem;
+    border-radius: var(--radius-field);
+    font-weight: 500;
+    font-size: 0.9375rem;
+    line-height: 1.2;
+    transition: background-color 0.15s, border-color 0.15s, color 0.15s;
+    white-space: nowrap;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--color-ink);
+    color: #fff;
+  }
+  .btn-primary:hover:not(:disabled) {
+    background: #000;
+  }
+  .btn-quiet {
+    border: 1px solid var(--color-line-strong);
+    background: var(--color-surface);
+    color: var(--color-ink);
+  }
+  .btn-quiet:hover:not(:disabled) {
+    border-color: var(--color-ink);
+  }
+  .btn-text {
+    min-height: 2.75rem;
+    padding: 0 0.25rem;
+    color: var(--color-ink-soft);
+    text-decoration: underline;
+    text-decoration-color: var(--color-line-strong);
+    text-underline-offset: 4px;
+  }
+  .btn-text:hover {
+    color: var(--color-ink);
+    text-decoration-color: var(--color-ink);
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    min-height: 2.75rem;
+    padding: 0 1rem;
+    border: 1px solid var(--color-line-strong);
+    border-radius: 999px;
+    background: var(--color-surface);
+    font-size: 0.9375rem;
+    font-weight: 450;
+    color: var(--color-ink);
+    transition: border-color 0.15s, background-color 0.15s;
+  }
+  .chip:hover:not(:disabled) {
+    border-color: var(--color-ink);
+  }
+  .chip[aria-pressed="true"] {
+    border-color: var(--color-ink);
+    background: var(--color-ink);
+    color: #fff;
+  }
+
+  .field {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.625rem 0.75rem;
+    border: 1px solid var(--color-line-strong);
+    border-radius: var(--radius-field);
+    background: var(--color-surface);
+    color: var(--color-ink);
+    transition: border-color 0.15s, box-shadow 0.15s;
+  }
+  .field::placeholder {
+    color: var(--color-muted);
+  }
+  .field:focus {
+    outline: none;
+    border-color: var(--color-gold);
+    box-shadow: 0 0 0 3px rgb(179 139 46 / 0.18);
+  }
+
+  .label {
+    display: block;
+    margin-bottom: 0.375rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: var(--color-ink-soft);
+  }
+}

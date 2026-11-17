@@ -1,0 +1,25 @@
+# зависимости
+node_modules/
+
+# сборка
+.next/
+out/
+dist/
+next-env.d.ts
+*.tsbuildinfo
+
+# окружение и секреты
+.env
+.env.*
+!.env.example
+
+# тесты
+test-results/
+playwright-report/
+blob-report/
+coverage/
+
+# прочее
+.DS_Store
+*.log
+.vercel/
