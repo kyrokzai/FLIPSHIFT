@@ -1,7 +1,7 @@
 "use client";
 
 import { demoResumesFor } from "@/domain/candidate/demo";
-import { vacancyKey } from "@/domain/candidate/match";
+import { analyzeResume, vacancyKey } from "@/domain/candidate/match";
 import {
   AnalyzeResponseSchema,
   ExtractResponseSchema,
@@ -10,9 +10,21 @@ import {
   type CandidateSource,
   type Mode,
 } from "@/domain/candidate/schema";
+import { NoTextError, extractInBrowser } from "./resume-file-client";
 import { getSession, newId, updateSession } from "./sessions";
 
 const inFlight = new Set<string>();
+
+let llmEnabled: Promise<boolean> | null = null;
+
+/** Подключена ли на сервере языковая модель. При сбое запроса считаем, что нет: анализ пройдёт в браузере. */
+export function serverHasLlm(): Promise<boolean> {
+  llmEnabled ??= fetch("/api/config")
+    .then((response) => (response.ok ? response.json() : { llm: false }))
+    .then((data: unknown) => !!(data && typeof data === "object" && "llm" in data && data.llm))
+    .catch(() => false);
+  return llmEnabled;
+}
 
 class RequestError extends Error {}
 
@@ -39,13 +51,20 @@ async function analyze(sessionId: string, candidateId: string): Promise<void> {
   const draft = session.draft;
 
   try {
-    const response = await fetch("/api/candidates/analyze", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ vacancy: draft, resumeText: candidate.resumeText, name: candidate.facts?.name ?? null, mode: candidate.mode }),
-    });
-    if (!response.ok) throw new RequestError(await readError(response, "Сервер не смог проанализировать резюме."));
-    const result = AnalyzeResponseSchema.parse(await response.json());
+    // Без языковой модели резюме анализируется в браузере и не покидает устройство.
+    // DEMO всегда считается локально: синтетические резюме модель не тратят.
+    let result;
+    if (candidate.mode === "demo" || !(await serverHasLlm())) {
+      result = analyzeResume(draft, candidate.resumeText, { name: candidate.facts?.name ?? null });
+    } else {
+      const response = await fetch("/api/candidates/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ vacancy: draft, resumeText: candidate.resumeText, name: candidate.facts?.name ?? null, mode: candidate.mode }),
+      });
+      if (!response.ok) throw new RequestError(await readError(response, "Сервер не смог проанализировать резюме."));
+      result = AnalyzeResponseSchema.parse(await response.json());
+    }
     patchCandidate(sessionId, candidateId, (current) => ({
       ...current,
       facts: result.facts,
@@ -125,15 +144,22 @@ export async function addResume(sessionId: string, input: ResumeInput): Promise<
   }
 
   if (input.file) {
-    const form = new FormData();
-    form.set("file", input.file);
     try {
-      const response = await fetch("/api/resumes/extract", { method: "POST", body: form });
-      if (!response.ok) return await readError(response, "Не удалось прочитать файл. Вставьте текст резюме вручную.");
-      text = ExtractResponseSchema.parse(await response.json()).text;
+      const local = await extractInBrowser(input.file);
+      if (local !== null) {
+        text = local;
+      } else {
+        // Браузер не смог разобрать файл — сервер извлекает текст в памяти и ничего не сохраняет.
+        const form = new FormData();
+        form.set("file", input.file);
+        const response = await fetch("/api/resumes/extract", { method: "POST", body: form });
+        if (!response.ok) return await readError(response, "Не удалось прочитать файл. Вставьте текст резюме вручную.");
+        text = ExtractResponseSchema.parse(await response.json()).text;
+      }
       kind = "file";
       fileName = input.file.name.slice(0, 200);
-    } catch {
+    } catch (error) {
+      if (error instanceof NoTextError) return error.message;
       return "Нет связи с сервером. Проверьте интернет и повторите загрузку.";
     }
   }

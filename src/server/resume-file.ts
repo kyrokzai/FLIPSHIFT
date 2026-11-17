@@ -1,4 +1,5 @@
-import { MAX_RESUME_CHARS, type ExtractResponse } from "@/domain/candidate/schema";
+import { MIN_RESUME_CHARS, NO_TEXT_MESSAGE, capResumeText, tidyResumeText } from "@/domain/candidate/resume-text";
+import type { ExtractResponse } from "@/domain/candidate/schema";
 
 /**
  * Извлечение текста из файла резюме. Файл обрабатывается в памяти и нигде
@@ -31,16 +32,6 @@ function detectFormat(name: string, bytes: Uint8Array): ExtractResponse["format"
   throw new ResumeFileError("Поддерживаются файлы PDF, DOCX и TXT. Либо вставьте текст резюме.", 415);
 }
 
-function tidy(text: string): string {
-  return text
-    .replace(/\r\n?/g, "\n")
-    .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f]/g, "")
-    .replace(/[ \t ]+/g, " ")
-    .replace(/ *\n */g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .trim();
-}
-
 export async function extractResumeText(name: string, bytes: Uint8Array): Promise<ExtractResponse> {
   if (bytes.byteLength === 0) throw new ResumeFileError("Файл пустой.", 400);
   if (bytes.byteLength > MAX_FILE_BYTES) throw new ResumeFileError("Файл больше 5 МБ. Загрузите резюме поменьше или вставьте текст.", 413);
@@ -62,14 +53,7 @@ export async function extractResumeText(name: string, bytes: Uint8Array): Promis
     throw new ResumeFileError("Не удалось прочитать файл: он повреждён или защищён паролем. Вставьте текст резюме вручную.", 422);
   }
 
-  const text = tidy(raw);
-  if (text.length < 40) {
-    throw new ResumeFileError(
-      format === "pdf"
-        ? "В PDF нет текста — похоже, это скан или фотография. Вставьте текст резюме вручную."
-        : "В файле почти нет текста. Проверьте файл или вставьте текст резюме вручную.",
-      422,
-    );
-  }
-  return { text: text.slice(0, MAX_RESUME_CHARS), format, truncated: text.length > MAX_RESUME_CHARS };
+  const text = tidyResumeText(raw);
+  if (text.length < MIN_RESUME_CHARS) throw new ResumeFileError(NO_TEXT_MESSAGE[format], 422);
+  return { ...capResumeText(text), format };
 }

@@ -34,6 +34,9 @@ describe("поисковые запросы", () => {
     expect(hh.origin + hh.pathname).toBe("https://hh.kz/search/resume");
     expect(hh.searchParams.get("text")).toBe("менеджер по активным продажам мебели");
     expect(hh.searchParams.get("area")).toBe("159");
+    const enbek = new URL(links.find((l) => l.source === "Enbek.kz")!.url);
+    expect(enbek.origin + enbek.pathname).toBe("https://www.enbek.kz/ru/search/resume");
+    expect(enbek.searchParams.get("region_id")).toBe("71");
     expect(links.every((l) => l.url.startsWith("https://"))).toBe(true);
   });
 });

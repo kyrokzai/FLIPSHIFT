@@ -167,6 +167,25 @@ test.describe("пилот: подбор по одной вакансии", () =>
     await expect(cards(page).first()).toContainText("Знание английского языка");
   });
 
+  test("без языковой модели резюме не покидает браузер", async ({ page }) => {
+    await openHiring(page);
+    const sent: string[] = [];
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+      if (request.method() === "POST" && url.pathname.startsWith("/api/")) sent.push(url.pathname);
+    });
+
+    await tab(page, /Кандидаты/);
+    for (const file of ["resume-test.pdf", "resume-test.docx", "resume-test.txt"]) {
+      await page.locator("input[type=file]").setInputFiles(`${FIXTURES}/${file}`);
+      await page.getByRole("button", { name: "Добавить и проанализировать" }).click();
+      await expect(cards(page).filter({ hasText: `файл ${file}` })).toContainText("Сильное соответствие");
+    }
+    await expect(cards(page)).toHaveCount(3);
+    // Ни файл, ни текст резюме на сервер не отправлялись: чтение и анализ прошли на устройстве.
+    expect(sent).toEqual([]);
+  });
+
   test("без вакансии подбор не открывается", async ({ page }) => {
     await page.goto("/vacancies/no-such/hiring");
     await expect(page.getByRole("heading", { name: "Сначала нужна вакансия" })).toBeVisible();

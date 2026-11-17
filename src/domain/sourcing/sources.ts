@@ -3,8 +3,8 @@ import type { SearchQuery } from "./queries";
 
 /**
  * Реестр источников кандидатов. Для каждого источника записано, что с ним
- * можно делать законно и что для этого нужно. Сведения проверены по
- * официальным документам площадок 17.11.2026; ссылки — в docs/SOURCING.md.
+ * можно делать законно и что для этого нужно. Основания, ссылки и степень
+ * проверки каждого утверждения — в docs/SOURCING.md (17.11.2026).
  *
  * Платформа не собирает страницы площадок автоматически и не обходит
  * их ограничения: там, где нет разрешённого API, работодатель ищет сам
@@ -63,13 +63,22 @@ export const SOURCE_CAPABILITIES: SourceCapability[] = [
     needs: null,
   },
   {
+    id: "enbek-web",
+    source: "Enbek.kz",
+    title: "Резюме и контакты на Enbek.kz",
+    access: "employer_account",
+    status: "needs_access",
+    summary: "Государственная биржа труда. Без входа виден список резюме без имён и контактов. Работодатель с подтверждённой ЭЦП компании получает полный доступ к резюме и контактам бесплатно. Просматривать можно только вручную.",
+    needs: "Регистрация работодателя на Enbek.kz и подтверждение ЭЦП компании.",
+  },
+  {
     id: "hh-web",
     source: "hh.kz",
     title: "Поиск и просмотр резюме на сайте hh.kz",
     access: "employer_account",
     status: "needs_access",
     summary: "Работодатель может искать и читать резюме на сайте без покупки базы — без контактов и с дневными лимитами просмотров.",
-    needs: "Вход на hh.kz под учётной записью работодателя. Регистрация компании на hh.kz бесплатна.",
+    needs: "Вход на hh.kz под учётной записью работодателя.",
   },
   {
     id: "hh-responses",
@@ -100,17 +109,19 @@ export const SOURCE_CAPABILITIES: SourceCapability[] = [
   },
   {
     id: "scraping",
-    source: "hh.kz, LinkedIn и другие площадки",
+    source: "hh.kz, Enbek.kz, LinkedIn",
     title: "Автоматический сбор страниц резюме в обход API",
     access: "prohibited",
     status: "prohibited",
-    summary: "Правила hh.kz прямо запрещают парсинг и массовую выгрузку базы резюме; LinkedIn запрещает автоматический сбор профилей. Платформа этого не делает.",
+    summary: "Правила hh.kz запрещают парсинг и массовую выгрузку базы резюме, правила Enbek.kz — любые автоматические способы получения содержимого портала, LinkedIn — автоматический сбор профилей. Платформа этого не делает.",
     needs: null,
   },
 ];
 
 /** Идентификаторы регионов hh для ссылки на поиск. Для остальных городов регион выбирается на самой площадке. */
 const HH_AREAS: Record<string, number> = { Астана: 159, Алматы: 160 };
+/** Регионы Enbek.kz: проверены открытием страницы поиска 17.11.2026. */
+const ENBEK_REGIONS: Record<string, number> = { Астана: 71, Алматы: 75 };
 
 export interface SearchLink {
   source: string;
@@ -133,6 +144,16 @@ export function buildSearchLinks(query: SearchQuery, draft: VacancyDraft): Searc
     label: "Искать на hh.kz",
     url: `https://hh.kz/search/resume?${hh.toString()}`,
     note: "Нужен вход работодателя. Резюме видны без контактов.",
+  });
+
+  const enbek = new URLSearchParams({ prof: query.text });
+  const region = draft.city ? ENBEK_REGIONS[draft.city] : undefined;
+  if (region) enbek.set("region_id", String(region));
+  links.push({
+    source: "Enbek.kz",
+    label: "Искать на Enbek.kz",
+    url: `https://www.enbek.kz/ru/search/resume?${enbek.toString()}`,
+    note: "Список резюме виден без входа. Контакты — после входа работодателя с ЭЦП.",
   });
 
   const people = [query.text, draft.city].filter(Boolean).join(" ");

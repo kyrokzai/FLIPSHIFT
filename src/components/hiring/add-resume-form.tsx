@@ -1,7 +1,7 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
-import { addResume } from "@/lib/candidate-actions";
+import { useEffect, useId, useRef, useState } from "react";
+import { addResume, serverHasLlm } from "@/lib/candidate-actions";
 
 const SOURCES = ["hh.kz", "Enbek.kz", "LinkedIn", "Отклик на вакансию", "Почта или мессенджер", "Рекомендация", "Другое"];
 
@@ -16,6 +16,17 @@ export function AddResumeForm({ sessionId }: { sessionId: string }) {
   const [url, setUrl] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [llm, setLlm] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void serverHasLlm().then((value) => {
+      if (active) setLlm(value);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const ready = !busy && (file !== null || text.trim().length >= 40);
 
@@ -46,9 +57,11 @@ export function AddResumeForm({ sessionId }: { sessionId: string }) {
       }}
     >
       <h3 className="text-lg font-medium">Добавить резюме</h3>
-      <p className="mt-1 text-[0.9375rem] leading-relaxed text-muted">
-        Добавляйте резюме, полученные законно: от самого кандидата или на площадке под вашей учётной записью. Резюме хранится
-        только в этом браузере.
+      <p className="mt-1 text-[0.9375rem] leading-relaxed text-muted" data-testid="privacy-note">
+        Добавляйте резюме, полученные законно: от самого кандидата или на площадке под вашей учётной записью.{" "}
+        {llm
+          ? "Подключена языковая модель: текст резюме без контактов и личных строк передаётся на сервер и в модель для анализа. Само резюме хранится только в этом браузере."
+          : "Резюме читается и анализируется прямо в вашем браузере: на сервер оно не передаётся и хранится только на этом устройстве."}
       </p>
 
       <div className="mt-4 grid gap-4">
