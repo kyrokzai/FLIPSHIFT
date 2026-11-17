@@ -1,5 +1,5 @@
 import type { VacancyDraft } from "@/domain/vacancy/schema";
-import type { SearchQuery } from "./queries";
+import type { SearchPlan, SearchQuery } from "./queries";
 
 /**
  * Реестр источников кандидатов. Для каждого источника записано, что с ним
@@ -131,38 +131,47 @@ export interface SearchLink {
   note: string;
 }
 
-/** Ссылки на поиск резюме на самих площадках — открываются в браузере работодателя. */
-export function buildSearchLinks(query: SearchQuery, draft: VacancyDraft): SearchLink[] {
-  const text = query.boolean ?? query.text;
-  const links: SearchLink[] = [];
-
-  const hh = new URLSearchParams({ text });
+/**
+ * Ссылка на поиск резюме hh.kz по запросу. Язык запросов hh понимает
+ * кавычки и операторы AND / OR, поэтому сюда уходит запрос целиком.
+ */
+export function buildQueryLink(query: SearchQuery, draft: VacancyDraft): SearchLink {
+  const params = new URLSearchParams({ text: query.boolean ?? query.text });
   const area = draft.city ? HH_AREAS[draft.city] : undefined;
-  if (area) hh.set("area", String(area));
-  links.push({
+  if (area) params.set("area", String(area));
+  return {
     source: "hh.kz",
     label: "Искать на hh.kz",
-    url: `https://hh.kz/search/resume?${hh.toString()}`,
+    url: `https://hh.kz/search/resume?${params.toString()}`,
     note: "Нужен вход работодателя. Резюме видны без контактов.",
-  });
+  };
+}
 
-  const enbek = new URLSearchParams({ prof: query.text });
+/**
+ * Площадки с простым поиском: длинный запрос там даёт пустую выдачу,
+ * поэтому ищем по самому распространённому названию должности.
+ */
+export function buildProfessionLinks(plan: SearchPlan, draft: VacancyDraft): SearchLink[] {
+  const profession = plan.titles[0];
+  if (!profession) return [];
+
+  const enbek = new URLSearchParams({ prof: profession });
   const region = draft.city ? ENBEK_REGIONS[draft.city] : undefined;
   if (region) enbek.set("region_id", String(region));
-  links.push({
-    source: "Enbek.kz",
-    label: "Искать на Enbek.kz",
-    url: `https://www.enbek.kz/ru/search/resume?${enbek.toString()}`,
-    note: "Список резюме виден без входа. Контакты — после входа работодателя с ЭЦП.",
-  });
 
-  const people = [query.text, draft.city].filter(Boolean).join(" ");
-  links.push({
-    source: "LinkedIn",
-    label: "Искать в LinkedIn",
-    url: `https://www.linkedin.com/search/results/people/?${new URLSearchParams({ keywords: people }).toString()}`,
-    note: "Обычный поиск людей в вашем аккаунте LinkedIn.",
-  });
-
-  return links;
+  const keywords = [profession, plan.domain[0], draft.city].filter(Boolean).join(" ");
+  return [
+    {
+      source: "Enbek.kz",
+      label: "Искать на Enbek.kz",
+      url: `https://www.enbek.kz/ru/search/resume?${enbek.toString()}`,
+      note: "Список резюме виден без входа, без имён и контактов. Контакты — после входа работодателя с ЭЦП.",
+    },
+    {
+      source: "LinkedIn",
+      label: "Искать в LinkedIn",
+      url: `https://www.linkedin.com/search/results/people/?${new URLSearchParams({ keywords }).toString()}`,
+      note: "Обычный поиск людей в вашем аккаунте LinkedIn.",
+    },
+  ];
 }
