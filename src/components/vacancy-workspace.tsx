@@ -106,6 +106,7 @@ export function VacancyWorkspace({ id }: { id: string }) {
           />
         ) : (
           <VacancyCard
+            sessionId={id}
             draft={draft}
             status={session.status}
             busy={busy}

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import {
   compensationLines,
@@ -14,6 +15,7 @@ import { missingForConfirmation } from "@/domain/vacancy/questions";
 import type { VacancyDraft } from "@/domain/vacancy/schema";
 
 interface Props {
+  sessionId: string;
   draft: VacancyDraft;
   status: "draft" | "confirmed";
   busy: boolean;
@@ -49,7 +51,7 @@ function List({ title, items }: { title: string; items: string[] }) {
   );
 }
 
-export function VacancyCard({ draft, status, busy, onEdit, onConfirm, onReopen }: Props) {
+export function VacancyCard({ sessionId, draft, status, busy, onEdit, onConfirm, onReopen }: Props) {
   const [copied, setCopied] = useState(false);
   const missing = missingForConfirmation(draft);
   const confirmed = status === "confirmed";
@@ -101,12 +103,14 @@ export function VacancyCard({ draft, status, busy, onEdit, onConfirm, onReopen }
       {confirmed ? (
         <div className="mt-8 rounded-field bg-paper px-4 py-4 sm:px-5">
           <p className="leading-relaxed text-ink-soft">
-            Следующий шаг — поиск кандидатов. Он запускается из кабинета работодателя: вход и сохранение вакансий
-            в аккаунте появятся на следующем этапе разработки. Пока текст вакансии можно скопировать и разместить
-            самостоятельно.
+            Следующий шаг — подбор: поисковые запросы, источники кандидатов, анализ резюме, шорт-лист и вопросы для
+            интервью.
           </p>
           <div className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2">
-            <button type="button" className="btn btn-primary" onClick={copy}>
+            <Link href={`/vacancies/${sessionId}/hiring`} className="btn btn-primary">
+              Перейти к подбору
+            </Link>
+            <button type="button" className="btn btn-quiet" onClick={copy}>
               {copied ? "Текст скопирован" : "Скопировать текст вакансии"}
             </button>
             <button type="button" className="btn-text text-[0.9375rem]" onClick={onReopen}>

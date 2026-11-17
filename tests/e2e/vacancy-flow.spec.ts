@@ -40,8 +40,8 @@ test.describe("сценарий: кофейня", () => {
 
     await page.getByRole("button", { name: "Подтвердить вакансию" }).click();
     await expect(card(page)).toContainText("Вакансия подтверждена");
-    // Платформа не изображает запущенный поиск, которого ещё нет.
-    await expect(card(page)).toContainText("появятся на следующем этапе разработки");
+    // Подтверждённая вакансия ведёт к подбору кандидатов.
+    await expect(card(page).getByRole("link", { name: "Перейти к подбору" })).toBeVisible();
     await expectNoHorizontalScroll(page);
 
     // Вакансия сохранилась в «Моих вакансиях» этого браузера.

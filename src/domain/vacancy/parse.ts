@@ -638,3 +638,23 @@ export function isSalesRole(title: string | null): boolean {
   if (!title) return false;
   return /продаж|продав|sales|торгов|сбыт/.test(normalize(title)) || !!roleByTitle(title)?.sales;
 }
+
+/** Все должности, упомянутые в тексте (например, в резюме), в начальной форме и без повторов. */
+export function extractRoleTitles(text: string, limit = 6): string[] {
+  const titles: string[] = [];
+  // Построчно: название должности не продолжается на следующей строке резюме.
+  for (const line of text.split("\n")) {
+    const norm = normalize(line);
+    for (const match of findRoleMatches(norm)) {
+      const end = readTail(norm, match.end, 5);
+      const tail = cleanPhrase(line.slice(match.end, end));
+      titles.push(capitalize(tail ? `${match.entry.title} ${tail}` : match.entry.title));
+    }
+  }
+  return unique(titles).slice(0, limit);
+}
+
+/** Первый упомянутый город из справочника. */
+export function findCityName(text: string): string | null {
+  return findCity(text, normalize(text))?.name ?? null;
+}

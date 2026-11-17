@@ -8,6 +8,14 @@ import { NUMBER_WORD_SOURCE, capitalize, cleanPhrase, normalize, parseCount, spl
  * кнопкой не требует сетевого запроса.
  */
 
+const SALES_DUTIES = [
+  "Самостоятельный поиск и привлечение клиентов",
+  "Проведение переговоров и презентаций",
+  "Заключение сделок и сопровождение клиентов",
+  "Выполнение плана продаж",
+  "Ведение клиентской базы в CRM",
+];
+
 function hasAmount(draft: VacancyDraft): boolean {
   return draft.compensation.amountFrom !== null || draft.compensation.amountTo !== null;
 }
@@ -113,7 +121,7 @@ export function computeQuestions(draft: VacancyDraft, skipped: readonly Question
   }
 
   if (draft.responsibilities.length === 0) {
-    const duties = roleByTitle(draft.title)?.duties;
+    const duties = roleByTitle(draft.title)?.duties ?? (isSalesRole(draft.title) ? SALES_DUTIES : undefined);
     questions.push({
       id: "responsibilities",
       text: "Чем будет заниматься сотрудник?",

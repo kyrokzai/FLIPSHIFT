@@ -2,6 +2,7 @@
 
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
+import { CandidateSchema, ModeSchema } from "@/domain/candidate/schema";
 import { NoticeSchema, QuestionIdSchema, VacancyDraftSchema, type QuestionId, type VacancyDraft } from "@/domain/vacancy/schema";
 
 /**
@@ -39,6 +40,9 @@ const SessionSchema = z.object({
   pending: PendingSchema.nullable(),
   /** Последний сбой отправки — чтобы предложить повтор. */
   failed: PendingSchema.extend({ reason: z.string() }).nullable(),
+  /** Режим подбора. DEMO и LIVE не смешиваются: у каждого кандидата свой режим. */
+  mode: ModeSchema.default("live"),
+  candidates: z.array(CandidateSchema).default([]),
 });
 export type VacancySession = z.infer<typeof SessionSchema>;
 
@@ -120,6 +124,8 @@ export function createSession(prompt: string): VacancySession {
     engine: null,
     pending: { message: prompt, questionId: null },
     failed: null,
+    mode: "live",
+    candidates: [],
   };
   write([session, ...read()].slice(0, MAX_SESSIONS));
   return session;
