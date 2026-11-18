@@ -189,6 +189,12 @@ test.describe("страницы", () => {
     await expectNoHorizontalScroll(page);
   });
 
+  test("пилот закрыт от поисковых роботов", async ({ page, request }) => {
+    await page.goto("/");
+    await expect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
+    expect(await (await request.get("/robots.txt")).text()).toContain("Disallow: /");
+  });
+
   test("ответы сервера несут защитные заголовки", async ({ request }) => {
     const response = await request.get("/");
     expect(response.headers()["x-content-type-options"]).toBe("nosniff");

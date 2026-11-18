@@ -1,4 +1,3 @@
-import { z } from "zod";
 import { AnalyzeRequestSchema, ModeSchema } from "@/domain/candidate/schema";
 import { handleResumeAnalysis } from "@/server/agents/scout";
 import { json, rateGuard, readJson } from "@/server/http";
@@ -25,8 +24,8 @@ export async function POST(request: Request) {
   const parsed = RequestSchema.safeParse(read.body);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
-    const message = issue?.path[0] === "resumeText" && issue.message ? issue.message : "Не удалось прочитать запрос.";
-    return json({ error: z.string().parse(message) }, 400);
+    const ownText = issue?.path[0] === "resumeText" && issue.code === "too_small";
+    return json({ error: ownText ? issue.message : "Не удалось прочитать запрос." }, 400);
   }
 
   try {
