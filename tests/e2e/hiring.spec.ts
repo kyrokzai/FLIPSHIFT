@@ -43,6 +43,11 @@ test.describe("пилот: подбор по одной вакансии", () =>
     const hh = page.getByRole("link", { name: "Искать на hh.kz" }).first();
     await expect(hh).toHaveAttribute("href", /^https:\/\/hh\.kz\/search\/resume\?text=.+&area=159$/);
     await expect(hh).toHaveAttribute("target", "_blank");
+    await expect(page.getByRole("link", { name: "Искать на Enbek.kz" })).toHaveAttribute(
+      "href",
+      `https://www.enbek.kz/ru/search/resume?prof=${encodeURIComponent("менеджер по продажам").replace(/%20/g, "+")}&region_id=71`,
+    );
+    await expect(page.getByRole("link", { name: "Искать в LinkedIn" })).toHaveCount(1);
     for (const heading of [
       "Доступно сейчас без платного подключения",
       "Требуется аккаунт работодателя",

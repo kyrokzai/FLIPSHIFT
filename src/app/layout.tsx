@@ -14,6 +14,8 @@ export const metadata: Metadata = {
   applicationName: "FORMIQ Talent Agent",
   authors: [{ name: "FORMIQ" }],
   formatDetection: { telephone: false },
+  // Пилот не должен попадать в поисковую выдачу: ссылку получают только те, кому её дали.
+  robots: { index: false, follow: false },
 };
 
 export const viewport: Viewport = {

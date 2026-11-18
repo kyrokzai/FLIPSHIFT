@@ -44,7 +44,9 @@ export async function POST(request: Request) {
   const parsed = IntakeRequestSchema.safeParse(body);
   if (!parsed.success) {
     const first = parsed.error.issues[0];
-    const message = first?.path[0] === "message" && first.message ? first.message : "Не удалось прочитать запрос.";
+    // Наружу уходят только наши собственные тексты о длине сообщения, а не служебные сообщения валидатора.
+    const ownText = first?.path[0] === "message" && (first.code === "too_small" || first.code === "too_big");
+    const message = ownText ? first.message : "Не удалось прочитать запрос.";
     return json({ error: message }, 400);
   }
 

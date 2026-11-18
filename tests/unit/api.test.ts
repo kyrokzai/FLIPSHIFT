@@ -31,6 +31,12 @@ describe("POST /api/vacancies/intake", () => {
     expect(long.status).toBe(400);
   });
 
+  it("не показывает служебные сообщения валидатора", async () => {
+    const response = await call({ message: { $ne: 1 } });
+    expect(response.status).toBe(400);
+    expect((await response.json()).error).toBe("Не удалось прочитать запрос.");
+  });
+
   it("отклоняет не-JSON и чужую структуру черновика", async () => {
     expect((await call("не json")).status).toBe(400);
     expect((await call({ message: "Нужен бариста", draft: { title: 42 } })).status).toBe(400);

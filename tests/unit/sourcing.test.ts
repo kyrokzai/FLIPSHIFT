@@ -3,7 +3,7 @@ import { POST as analyze } from "@/app/api/candidates/analyze/route";
 import { AnalyzeResponseSchema, type Candidate } from "@/domain/candidate/schema";
 import { analyzeResume, vacancyKey } from "@/domain/candidate/match";
 import { buildSearchPlan } from "@/domain/sourcing/queries";
-import { SOURCE_CAPABILITIES, accessClasses, buildSearchLinks } from "@/domain/sourcing/sources";
+import { SOURCE_CAPABILITIES, accessClasses, buildProfessionLinks, buildQueryLink } from "@/domain/sourcing/sources";
 import { applyPatch } from "@/domain/vacancy/merge";
 import { parseEmployerMessage } from "@/domain/vacancy/parse";
 import { emptyDraft } from "@/domain/vacancy/schema";
@@ -28,16 +28,28 @@ describe("поисковые запросы", () => {
     expect(other.queries.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("ссылки ведут на поиск самих площадок, а не на сбор данных", () => {
-    const links = buildSearchLinks(plan.queries[0]!, draft);
-    const hh = new URL(links.find((l) => l.source === "hh.kz")!.url);
-    expect(hh.origin + hh.pathname).toBe("https://hh.kz/search/resume");
-    expect(hh.searchParams.get("text")).toBe("менеджер по активным продажам мебели");
-    expect(hh.searchParams.get("area")).toBe("159");
-    const enbek = new URL(links.find((l) => l.source === "Enbek.kz")!.url);
-    expect(enbek.origin + enbek.pathname).toBe("https://www.enbek.kz/ru/search/resume");
-    expect(enbek.searchParams.get("region_id")).toBe("71");
-    expect(links.every((l) => l.url.startsWith("https://"))).toBe(true);
+  it("hh.kz получает запрос целиком и регион Астаны", () => {
+    const exact = new URL(buildQueryLink(plan.queries[0]!, draft).url);
+    expect(exact.origin + exact.pathname).toBe("https://hh.kz/search/resume");
+    expect(exact.searchParams.get("text")).toBe("менеджер по активным продажам мебели");
+    expect(exact.searchParams.get("area")).toBe("159");
+    expect(new URL(buildQueryLink(plan.queries[1]!, draft).url).searchParams.get("text")).toBe(plan.queries[1]!.boolean);
+  });
+
+  it("Enbek.kz и LinkedIn получают короткое название должности, а не длинный запрос", () => {
+    const [enbek, linkedin] = buildProfessionLinks(plan, draft).map((link) => new URL(link.url));
+    expect(enbek!.origin + enbek!.pathname).toBe("https://www.enbek.kz/ru/search/resume");
+    expect(enbek!.searchParams.get("prof")).toBe("менеджер по продажам");
+    expect(enbek!.searchParams.get("region_id")).toBe("71");
+    expect(linkedin!.origin + linkedin!.pathname).toBe("https://www.linkedin.com/search/results/people/");
+    expect(linkedin!.searchParams.get("keywords")).toBe("менеджер по продажам мебель Астана");
+  });
+
+  it("для города вне справочника регион не подставляется", () => {
+    const other = applyPatch(emptyDraft(), parseEmployerMessage("Нужен сварщик в Павлодаре").patch);
+    const otherPlan = buildSearchPlan(other);
+    expect(new URL(buildQueryLink(otherPlan.queries[0]!, other).url).searchParams.has("area")).toBe(false);
+    expect(new URL(buildProfessionLinks(otherPlan, other)[0]!.url).searchParams.has("region_id")).toBe(false);
   });
 });
 
