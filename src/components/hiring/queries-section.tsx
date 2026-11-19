@@ -1,9 +1,25 @@
+"use client";
+
 import type { SearchPlan } from "@/domain/sourcing/queries";
+import { recordEvent } from "@/lib/activity";
 import { buildProfessionLinks, buildQueryLink } from "@/domain/sourcing/sources";
 import type { VacancyDraft } from "@/domain/vacancy/schema";
 import { CopyButton } from "./copy-button";
 
-export function QueriesSection({ plan, draft }: { plan: SearchPlan; draft: VacancyDraft }) {
+/** Переход по ссылке — это действие работодателя, а не автоматический поиск: так он и записывается. */
+function logOpen(sessionId: string, source: string) {
+  recordEvent({
+    vacancyId: sessionId,
+    key: `source_opened:${source}:${Date.now()}`,
+    type: "source_opened",
+    actor: "employer",
+    mode: "live",
+    source,
+    result: `Открыт поиск резюме на ${source} в новой вкладке. Резюме автоматически не загружались.`,
+  });
+}
+
+export function QueriesSection({ sessionId, plan, draft }: { sessionId: string; plan: SearchPlan; draft: VacancyDraft }) {
   if (plan.queries.length === 0) {
     return <p className="mt-4 leading-relaxed text-muted">Укажите в вакансии должность — агент составит запросы.</p>;
   }
@@ -23,7 +39,7 @@ export function QueriesSection({ plan, draft }: { plan: SearchPlan; draft: Vacan
                 {text}
               </p>
               <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:flex-wrap">
-                <a href={link.url} target="_blank" rel="noopener noreferrer" className="btn btn-quiet">
+                <a href={link.url} target="_blank" rel="noopener noreferrer" className="btn btn-quiet" onClick={() => logOpen(sessionId, link.source)}>
                   {link.label}
                 </a>
                 <CopyButton text={text} label="Скопировать запрос" />
@@ -45,7 +61,7 @@ export function QueriesSection({ plan, draft }: { plan: SearchPlan; draft: Vacan
           <ul className="mt-3 flex flex-col gap-3">
             {others.map((link) => (
               <li key={link.source}>
-                <a href={link.url} target="_blank" rel="noopener noreferrer" className="btn btn-quiet w-full sm:w-auto">
+                <a href={link.url} target="_blank" rel="noopener noreferrer" className="btn btn-quiet w-full sm:w-auto" onClick={() => logOpen(sessionId, link.source)}>
                   {link.label}
                 </a>
                 <p className="mt-1.5 text-sm leading-relaxed text-muted">{link.note}</p>

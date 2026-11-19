@@ -1,7 +1,11 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { verdictLabels } from "@/domain/candidate/match";
+import { weightedShare, weightsFor } from "@/domain/challenge/engine";
+import type { Challenge, ChallengeWeights } from "@/domain/challenge/schema";
+import { TEMPLATES, suggestTemplate } from "@/domain/challenge/templates";
 import type { Candidate, Criterion } from "@/domain/candidate/schema";
 import { formatNumber, currencySymbols, plural } from "@/domain/vacancy/format";
 
@@ -14,6 +18,18 @@ const MARK: Record<Criterion["status"], { label: string; className: string }> = 
 
 export function candidateName(candidate: Candidate, index: number): string {
   return candidate.facts?.name ?? `Кандидат ${index + 1}`;
+}
+
+/** Имена для всех кандидатов вакансии. Безымянные нумеруются внутри своего режима — как в списке кандидатов. */
+export function candidateNames(candidates: Candidate[]): Record<string, string> {
+  const counters: Record<string, number> = {};
+  return Object.fromEntries(
+    candidates.map((candidate) => {
+      const index = counters[candidate.mode] ?? 0;
+      counters[candidate.mode] = index + 1;
+      return [candidate.id, candidateName(candidate, index)];
+    }),
+  );
 }
 
 function Facts({ candidate }: { candidate: Candidate }) {
@@ -43,14 +59,43 @@ function Facts({ candidate }: { candidate: Candidate }) {
 }
 
 interface Props {
+  sessionId: string;
+  vacancyTitle: string | null;
   candidate: Candidate;
   index: number;
   stale: boolean;
+  challenges: Challenge[];
+  weights: ChallengeWeights;
+  inCompare: boolean;
+  compareFull: boolean;
+  onToggleCompare: () => void;
+  onShowHistory: () => void;
   onRemove: () => void;
   onRetry: () => void;
 }
 
-export function CandidateCard({ candidate, index, stale, onRemove, onRetry }: Props) {
+function ChallengeSummary({ sessionId, challenges, weights }: { sessionId: string; challenges: Challenge[]; weights: ChallengeWeights }) {
+  const latest = [...challenges].sort((a, b) => b.updatedAt - a.updatedAt)[0];
+  if (!latest) return null;
+  const href = `/vacancies/${sessionId}/hiring/challenge/${latest.id}`;
+  const share = latest.report ? weightedShare(latest.report, weightsFor(latest.templateId, weights)) : null;
+  const status =
+    latest.status === "setup"
+      ? "ожидает согласия кандидата"
+      : latest.status === "in_progress"
+        ? `идёт, отвечено ${latest.turns.filter((t) => t.answer !== null).length} из ${latest.stepCount}`
+        : `${latest.status === "stopped" ? "остановлена досрочно" : "завершена"}${share === null ? "" : `, навыки проявлены на ${share}%`}`;
+  return (
+    <p className="mt-4 rounded-field bg-paper px-4 py-3 text-[0.9375rem] leading-relaxed" data-testid="challenge-summary">
+      <span className="font-medium">Проверка навыков:</span> {TEMPLATES[latest.templateId].title.toLowerCase()} — {status}.{" "}
+      <Link href={href} className="underline underline-offset-4 hover:text-ink">
+        {latest.report ? "Открыть отчёт" : "Продолжить"}
+      </Link>
+    </p>
+  );
+}
+
+export function CandidateCard({ sessionId, vacancyTitle, candidate, index, stale, challenges, weights, inCompare, compareFull, onToggleCompare, onShowHistory, onRemove, onRetry }: Props) {
   const [confirming, setConfirming] = useState(false);
   const { analysis, source } = candidate;
   const name = candidateName(candidate, index);
@@ -62,7 +107,7 @@ export function CandidateCard({ candidate, index, stale, onRemove, onRetry }: Pr
         <div className="min-w-0">
           <h3 className="text-lg font-medium leading-snug">
             {name}
-            {demo ? <span className="ml-2 rounded-full bg-gold-wash px-2 py-0.5 text-xs font-medium text-gold-deep">Демо, вымышлен</span> : null}
+            {demo ? <span className="ml-2 whitespace-nowrap rounded-full bg-gold-wash px-2 py-0.5 text-xs font-medium text-gold-deep">Демо, вымышлен</span> : null}
           </h3>
           <p className="mt-1 text-sm leading-relaxed text-muted">
             Источник: {source.label}
@@ -144,7 +189,30 @@ export function CandidateCard({ candidate, index, stale, onRemove, onRetry }: Pr
         </>
       )}
 
+      <ChallengeSummary sessionId={sessionId} challenges={challenges} weights={weights} />
+
+      {analysis ? (
+        <div className="mt-4 grid gap-2 sm:flex sm:flex-wrap">
+          <Link href={`/vacancies/${sessionId}/hiring/candidate/${candidate.id}/challenge`} className="btn btn-quiet">
+            {TEMPLATES[suggestTemplate(vacancyTitle)].action}
+          </Link>
+          <button
+            type="button"
+            className="btn btn-quiet"
+            aria-pressed={inCompare}
+            disabled={!inCompare && compareFull}
+            title={!inCompare && compareFull ? "В сравнении уже три кандидата" : undefined}
+            onClick={onToggleCompare}
+          >
+            {inCompare ? "Убрать из сравнения" : "Добавить к сравнению"}
+          </button>
+        </div>
+      ) : null}
+
       <div className="mt-3 flex flex-wrap items-center gap-x-4">
+        <button type="button" className="btn-text text-sm" onClick={onShowHistory}>
+          История действий
+        </button>
         {confirming ? (
           <>
             <button type="button" className="btn btn-quiet text-danger" onClick={onRemove}>

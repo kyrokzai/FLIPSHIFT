@@ -2,15 +2,19 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { vacancyKey } from "@/domain/candidate/match";
+import { rankCandidates, vacancyKey } from "@/domain/candidate/match";
+import { MAX_COMPARE, MIN_COMPARE } from "@/domain/compare/compare";
 import type { Mode } from "@/domain/candidate/schema";
 import { buildVacancyQuestions } from "@/domain/interview/questions";
 import { buildSearchPlan } from "@/domain/sourcing/queries";
 import { analyzePending, loadDemoCandidates, reanalyze, removeCandidate, setMode } from "@/lib/candidate-actions";
+import { recordEvent } from "@/lib/activity";
+import { compareIdsFor, toggleCompare } from "@/lib/compare-actions";
 import { computeSteps, type HiringStep } from "@/lib/hiring-steps";
 import { useHydrated, useSessions } from "@/lib/sessions";
 import { AddResumeForm } from "./add-resume-form";
-import { CandidateCard } from "./candidate-card";
+import { ActivityFeed } from "@/components/activity/activity-feed";
+import { CandidateCard, candidateNames } from "./candidate-card";
 import { CopyButton } from "./copy-button";
 import { QueriesSection } from "./queries-section";
 import { ShortlistSection } from "./shortlist-section";
@@ -22,7 +26,7 @@ const MODES: Array<{ id: Mode; label: string; text: string }> = [
   { id: "demo", label: "DEMO", text: "Вымышленные кандидаты. Режим показывает, как работает подбор, и не содержит реальных людей." },
 ];
 
-type Tab = "steps" | "search" | "candidates" | "shortlist" | "interview";
+type Tab = "steps" | "search" | "candidates" | "shortlist" | "interview" | "journal";
 
 const TABS: Array<{ id: Tab; label: string }> = [
   { id: "steps", label: "Ход подбора" },
@@ -30,6 +34,7 @@ const TABS: Array<{ id: Tab; label: string }> = [
   { id: "candidates", label: "Кандидаты" },
   { id: "shortlist", label: "Шорт-лист" },
   { id: "interview", label: "Интервью" },
+  { id: "journal", label: "Журнал" },
 ];
 
 const STEP_TAB: Record<HiringStep["id"], Tab> = {
@@ -62,6 +67,48 @@ export function HiringWorkspace({ id }: { id: string }) {
 
   const plan = draft ? buildSearchPlan(draft) : null;
   const questions = draft ? buildVacancyQuestions(draft) : [];
+  const [historyFor, setHistoryFor] = useState<string | null>(null);
+  const [compareError, setCompareError] = useState<string | null>(null);
+
+  // Журнал: запросы сформированы (один раз на версию вакансии) и честная отметка, что автоматического поиска не было.
+  const queryCount = plan?.queries.length ?? 0;
+  const draftKey = draft ? vacancyKey(draft) : null;
+  useEffect(() => {
+    if (!draftKey || queryCount === 0) return;
+    recordEvent({ vacancyId: id, key: `queries:${draftKey}`, type: "queries_generated", actor: "agent", mode: "live", result: `Составлено поисковых запросов: ${queryCount}. Поиск по ним выполняет работодатель на площадках.` });
+  }, [id, draftKey, queryCount]);
+  useEffect(() => {
+    if (!hydrated || mode !== "live" || !draftKey) return;
+    recordEvent({
+      vacancyId: id,
+      key: "source_unavailable",
+      type: "source_unavailable",
+      actor: "system",
+      mode: "live",
+      status: "needs_permission",
+      source: "hh.kz, Enbek.kz",
+      errorCode: "employer_access_required",
+      result: "Автоматический поиск резюме не выполнялся: площадкам нужен доступ работодателя (аккаунт или API). Кандидаты не получены.",
+    });
+  }, [id, hydrated, mode, draftKey]);
+
+  // Журнал: шорт-лист записывается, когда анализ завершён и состав изменился.
+  const modeCandidates = session?.candidates.filter((candidate) => candidate.mode === mode) ?? [];
+  const settled = modeCandidates.length > 0 && modeCandidates.every((candidate) => candidate.analysis || candidate.error);
+  const shortlistIds = settled ? rankCandidates(modeCandidates).shortlist.map((candidate) => candidate.id).join(",") : null;
+  const analysedCount = modeCandidates.filter((candidate) => candidate.analysis).length;
+  useEffect(() => {
+    if (shortlistIds === null || analysedCount === 0) return;
+    const size = shortlistIds ? shortlistIds.split(",").length : 0;
+    recordEvent({
+      vacancyId: id,
+      key: `shortlist:${mode}:${shortlistIds}`,
+      type: "shortlist_updated",
+      actor: "agent",
+      mode,
+      result: `В шорт-листе ${size} из ${analysedCount} проанализированных. Порог — рекомендация, решение за работодателем.`,
+    });
+  }, [id, mode, shortlistIds, analysedCount]);
 
   if (!hydrated) {
     return (
@@ -91,6 +138,7 @@ export function HiringWorkspace({ id }: { id: string }) {
   const stale = candidates.filter((candidate) => candidate.analysis && candidate.vacancyKey !== key);
   const steps = computeSteps({ draft, confirmed, mode, candidates: session.candidates, plan });
   const demo = mode === "demo";
+  const compareIds = compareIdsFor(session, mode);
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-7 px-5 py-8 sm:py-12">
@@ -177,7 +225,7 @@ export function HiringWorkspace({ id }: { id: string }) {
                   Агент составил запросы по условиям вакансии. Откройте поиск на площадке под своей учётной записью, а найденные резюме
                   добавьте во вкладке «Кандидаты» — агент их проанализирует.
                 </p>
-                <QueriesSection plan={plan} draft={draft} />
+                <QueriesSection sessionId={id} plan={plan} draft={draft} />
               </section>
               <section aria-labelledby="sources-title">
                 <h2 id="sources-title" className="text-2xl font-normal tracking-[-0.01em]">
@@ -209,6 +257,25 @@ export function HiringWorkspace({ id }: { id: string }) {
                   <AddResumeForm sessionId={id} />
                 )}
 
+                {compareIds.length > 0 ? (
+                  <div className="sticky bottom-3 z-10 flex flex-col gap-2 rounded-card border border-line-strong bg-surface p-4 shadow-lift sm:flex-row sm:items-center sm:justify-between" data-testid="compare-bar">
+                    <p className="leading-relaxed">
+                      В сравнении: {compareIds.length} из {MAX_COMPARE}
+                      {compareIds.length < MIN_COMPARE ? ". Добавьте ещё одного кандидата." : "."}
+                    </p>
+                    {compareIds.length >= MIN_COMPARE ? (
+                      <Link href={`/vacancies/${id}/hiring/compare`} className="btn btn-primary">
+                        Сравнить кандидатов
+                      </Link>
+                    ) : null}
+                  </div>
+                ) : null}
+                {compareError ? (
+                  <p role="alert" className="text-[0.9375rem] text-danger">
+                    {compareError}
+                  </p>
+                ) : null}
+
                 {stale.length > 0 ? (
                   <div className="rounded-field border border-gold/40 bg-gold-wash px-4 py-3.5">
                     <p className="leading-relaxed">Условия вакансии изменились после анализа. Оценки нужно пересчитать.</p>
@@ -223,9 +290,20 @@ export function HiringWorkspace({ id }: { id: string }) {
                     {candidates.map((candidate, index) => (
                       <CandidateCard
                         key={candidate.id}
+                        sessionId={id}
+                        vacancyTitle={draft.title}
                         candidate={candidate}
                         index={index}
                         stale={stale.includes(candidate)}
+                        challenges={session.challenges.filter((item) => item.candidateId === candidate.id)}
+                        weights={session.challengeWeights}
+                        inCompare={compareIds.includes(candidate.id)}
+                        compareFull={compareIds.length >= MAX_COMPARE}
+                        onToggleCompare={() => setCompareError(toggleCompare(id, candidate.id))}
+                        onShowHistory={() => {
+                          setHistoryFor(candidate.id);
+                          setTab("journal");
+                        }}
                         onRemove={() => removeCandidate(id, candidate.id)}
                         onRetry={() => reanalyze(id, mode, candidate.id)}
                       />
@@ -244,6 +322,21 @@ export function HiringWorkspace({ id }: { id: string }) {
             <>
               <Heading>{demo ? "Шорт-лист, демонстрационный" : "Шорт-лист"}</Heading>
               <ShortlistSection candidates={candidates} />
+            </>
+          ) : null}
+
+          {tab === "journal" ? (
+            <>
+              <Heading>Журнал действий</Heading>
+              <div className="mt-4">
+                <ActivityFeed
+                  events={session.events.filter((event) => event.mode === mode)}
+                  candidateNames={candidateNames(session.candidates)}
+                  fixedMode={mode}
+                  candidateFilter={historyFor}
+                  onClearCandidate={() => setHistoryFor(null)}
+                />
+              </div>
             </>
           ) : null}
 

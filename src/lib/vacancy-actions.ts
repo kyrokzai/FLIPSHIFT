@@ -11,6 +11,7 @@ import {
   type QuestionOption,
   type VacancyDraft,
 } from "@/domain/vacancy/schema";
+import { recordEvent } from "./activity";
 import { getSession, message, updateSession } from "./sessions";
 
 const inFlight = new Set<string>();
@@ -49,6 +50,16 @@ export async function deliverPending(id: string): Promise<void> {
       failed: null,
       messages: [...current.messages, message("agent", result.reply, result.notices)],
     }));
+    if (!session.draft) {
+      recordEvent({
+        vacancyId: id,
+        key: "vacancy_created",
+        type: "vacancy_created",
+        actor: "agent",
+        mode: "live",
+        result: `Черновик собран из описания работодателя: ${result.draft.title ?? "должность не указана"}${result.draft.city ? `, ${result.draft.city}` : ""}.${result.notices.length ? ` Исключено условий по защищённым признакам: ${result.notices.length}.` : ""}`,
+      });
+    }
   } catch (error) {
     const reason =
       error instanceof IntakeError ? error.message : "Нет связи с сервером. Проверьте интернет и повторите.";
@@ -127,4 +138,7 @@ export function saveDraft(id: string, draft: VacancyDraft): void {
 
 export function setStatus(id: string, status: "draft" | "confirmed"): void {
   updateSession(id, (current) => ({ ...current, status }));
+  if (status === "confirmed") {
+    recordEvent({ vacancyId: id, key: `vacancy_confirmed:${Date.now()}`, type: "vacancy_confirmed", actor: "employer", mode: "live", result: "Работодатель подтвердил условия вакансии." });
+  }
 }
