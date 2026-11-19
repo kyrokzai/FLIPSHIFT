@@ -11,6 +11,7 @@ import {
   type Mode,
 } from "@/domain/candidate/schema";
 import { NoTextError, extractInBrowser } from "./resume-file-client";
+import { recordEvent } from "./activity";
 import { getSession, newId, updateSession } from "./sessions";
 
 const inFlight = new Set<string>();
@@ -72,9 +73,30 @@ async function analyze(sessionId: string, candidateId: string): Promise<void> {
       vacancyKey: vacancyKey(draft),
       error: null,
     }));
+    recordEvent({
+      vacancyId: sessionId,
+      key: `resume_analyzed:${candidateId}:${vacancyKey(draft)}:${Date.now()}`,
+      type: "resume_analyzed",
+      actor: "agent",
+      candidateId,
+      mode: candidate.mode,
+      source: candidate.source.label,
+      result: `Соответствие вакансии: ${result.analysis.verdict === "insufficient" ? "мало данных" : `${result.analysis.score}%`}. Критериев проверено: ${result.analysis.criteria.length}. ${result.analysis.engine === "llm" ? "С языковой моделью" : "Встроенный разбор, в браузере"}.`,
+    });
   } catch (error) {
     const reason = error instanceof RequestError ? error.message : "Нет связи с сервером. Проверьте интернет и повторите анализ.";
     patchCandidate(sessionId, candidateId, (current) => ({ ...current, error: reason }));
+    recordEvent({
+      vacancyId: sessionId,
+      key: `resume_analysis_failed:${candidateId}:${Date.now()}`,
+      type: "resume_analysis_failed",
+      actor: "agent",
+      candidateId,
+      mode: candidate.mode,
+      status: "error",
+      errorCode: error instanceof RequestError ? "server_rejected" : "network",
+      result: reason,
+    });
   } finally {
     inFlight.delete(flightKey);
   }
@@ -153,18 +175,29 @@ export async function addResume(sessionId: string, input: ResumeInput): Promise<
         const form = new FormData();
         form.set("file", input.file);
         const response = await fetch("/api/resumes/extract", { method: "POST", body: form });
-        if (!response.ok) return await readError(response, "Не удалось прочитать файл. Вставьте текст резюме вручную.");
+        if (!response.ok) {
+          const reason = await readError(response, "Не удалось прочитать файл. Вставьте текст резюме вручную.");
+          importFailed(sessionId, `http_${response.status}`, reason);
+          return reason;
+        }
         text = ExtractResponseSchema.parse(await response.json()).text;
       }
       kind = "file";
       fileName = input.file.name.slice(0, 200);
     } catch (error) {
-      if (error instanceof NoTextError) return error.message;
+      if (error instanceof NoTextError) {
+        importFailed(sessionId, "no_text", error.message);
+        return error.message;
+      }
+      importFailed(sessionId, "network", "Нет связи с сервером при чтении файла.");
       return "Нет связи с сервером. Проверьте интернет и повторите загрузку.";
     }
   }
 
-  if (text.length < 40) return "В резюме слишком мало текста для анализа. Добавьте описание опыта.";
+  if (text.length < 40) {
+    importFailed(sessionId, "too_short", "В резюме слишком мало текста для анализа.");
+    return "В резюме слишком мало текста для анализа. Добавьте описание опыта.";
+  }
 
   const id = addCandidate(
     sessionId,
@@ -173,23 +206,63 @@ export async function addResume(sessionId: string, input: ResumeInput): Promise<
     text,
     input.name.trim().slice(0, 120) || null,
   );
+  recordEvent({
+    vacancyId: sessionId,
+    key: `resume_imported:${id}`,
+    type: "resume_imported",
+    actor: "employer",
+    candidateId: id,
+    mode: "live",
+    source: input.sourceLabel.trim().slice(0, 80) || "Добавлено вручную",
+    result: kind === "file" ? `Резюме загружено из файла ${(fileName ?? "").split(".").pop()?.toUpperCase() ?? ""} и прочитано в браузере.` : "Резюме добавлено текстом.",
+  });
   void analyze(sessionId, id);
   return null;
+}
+
+function importFailed(sessionId: string, code: string, reason: string) {
+  recordEvent({ vacancyId: sessionId, key: `resume_import_failed:${Date.now()}`, type: "resume_import_failed", actor: "system", mode: "live", status: "error", errorCode: code, result: reason });
 }
 
 /** DEMO: загружает вымышленных кандидатов под текущую вакансию. */
 export function loadDemoCandidates(sessionId: string): void {
   const session = getSession(sessionId);
   if (!session?.draft) return;
-  updateSession(sessionId, (current) => ({ ...current, candidates: current.candidates.filter((candidate) => candidate.mode !== "demo") }));
+  const demoIds = new Set(session.candidates.filter((candidate) => candidate.mode === "demo").map((candidate) => candidate.id));
+  updateSession(sessionId, (current) => ({
+    ...current,
+    candidates: current.candidates.filter((candidate) => candidate.mode !== "demo"),
+    challenges: current.challenges.filter((item) => !demoIds.has(item.candidateId)),
+    compare: current.compare.filter((id) => !demoIds.has(id)),
+  }));
   for (const resume of demoResumesFor(session.draft)) {
     addCandidate(sessionId, "demo", { kind: "demo", label: "Демонстрационные данные", url: null, fileName: null }, resume.resumeText, resume.name);
   }
+  recordEvent({
+    vacancyId: sessionId,
+    key: `demo_loaded:${Date.now()}`,
+    type: "demo_loaded",
+    actor: "employer",
+    mode: "demo",
+    source: "Демонстрационные данные",
+    result: `Загружено вымышленных кандидатов: ${demoResumesFor(session.draft).length}. Это не результат поиска.`,
+  });
+  // Сначала факт загрузки, затем анализ — в журнале события идут в реальном порядке.
   analyzePending(sessionId, "demo");
 }
 
 export function removeCandidate(sessionId: string, candidateId: string): void {
-  updateSession(sessionId, (session) => ({ ...session, candidates: session.candidates.filter((candidate) => candidate.id !== candidateId) }));
+  const candidate = getSession(sessionId)?.candidates.find((item) => item.id === candidateId);
+  updateSession(sessionId, (session) => ({
+    ...session,
+    candidates: session.candidates.filter((item) => item.id !== candidateId),
+    // Вместе с резюме удаляются проверки навыков и место в сравнении.
+    challenges: session.challenges.filter((item) => item.candidateId !== candidateId),
+    compare: session.compare.filter((id) => id !== candidateId),
+  }));
+  if (candidate) {
+    recordEvent({ vacancyId: sessionId, key: `candidate_removed:${candidateId}`, type: "candidate_removed", actor: "employer", candidateId, mode: candidate.mode, result: "Резюме, проверки навыков и место в сравнении удалены." });
+  }
 }
 
 export function setMode(sessionId: string, mode: Mode): void {

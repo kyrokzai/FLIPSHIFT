@@ -2,7 +2,9 @@
 
 import { useSyncExternalStore } from "react";
 import { z } from "zod";
+import { ActivityEventSchema } from "@/domain/activity/events";
 import { CandidateSchema, ModeSchema } from "@/domain/candidate/schema";
+import { ChallengeSchema, WeightsSchema } from "@/domain/challenge/schema";
 import { NoticeSchema, QuestionIdSchema, VacancyDraftSchema, type QuestionId, type VacancyDraft } from "@/domain/vacancy/schema";
 
 /**
@@ -43,6 +45,14 @@ const SessionSchema = z.object({
   /** Режим подбора. DEMO и LIVE не смешиваются: у каждого кандидата свой режим. */
   mode: ModeSchema.default("live"),
   candidates: z.array(CandidateSchema).default([]),
+  /** Практические проверки навыков. Режим берётся у кандидата. */
+  challenges: z.array(ChallengeSchema).default([]),
+  /** Веса критериев проверок — одни для всех кандидатов этой вакансии. */
+  challengeWeights: WeightsSchema.default({}),
+  /** Кандидаты, выбранные для сравнения: до трёх в каждом режиме. Лишнее отбрасывается, а не ломает вакансию. */
+  compare: z.array(z.string()).default([]).transform((ids) => ids.slice(0, 6)),
+  /** Журнал действий по вакансии. Хранится только в этом браузере. */
+  events: z.array(ActivityEventSchema).default([]),
 });
 export type VacancySession = z.infer<typeof SessionSchema>;
 
@@ -126,6 +136,10 @@ export function createSession(prompt: string): VacancySession {
     failed: null,
     mode: "live",
     candidates: [],
+    challenges: [],
+    challengeWeights: {},
+    compare: [],
+    events: [],
   };
   write([session, ...read()].slice(0, MAX_SESSIONS));
   return session;
