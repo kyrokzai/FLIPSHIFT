@@ -115,7 +115,7 @@ function cellsFor(candidate: Candidate, input: CompareInput): Record<FieldId, Co
   const prospecting: CompareCell = prospectLine
     ? { candidateId: id, value: "Указано в резюме", detail: null, excerpt: clip(prospectLine), source: "resume" }
     : deniedLine
-      ? { candidateId: id, value: "Кандидат пишет, что не занимался", detail: null, excerpt: clip(deniedLine), source: "resume" }
+      ? { candidateId: id, value: "Кандидат указывает, что такого опыта нет", detail: null, excerpt: clip(deniedLine), source: "resume" }
       : empty(id, "В резюме не упоминается");
 
   // Достижения — только то, что написал сам кандидат; платформа их не проверяет

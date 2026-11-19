@@ -128,7 +128,7 @@ test.describe("P0: Skill Challenge, сравнение, журнал", () => {
     await expect(page.getByRole("heading", { level: 1 })).toHaveText("Сравнение кандидатов");
     await expect(page.getByText("Режим DEMO: все кандидаты и их ответы вымышлены.")).toBeVisible();
     await expect(page.getByTestId("field-interview").getByText("Нет данных", { exact: true })).toHaveCount(3);
-    await expect(page.getByTestId("field-prospecting")).toContainText("Кандидат пишет, что не занимался");
+    await expect(page.getByTestId("field-prospecting")).toContainText("Кандидат указывает, что такого опыта нет");
     await expect(page.getByTestId("field-achievements")).toContainText("Источник: Резюме");
     await expect(page.getByText("Платформа не выбирает победителя")).toBeVisible();
     await expect(page.getByRole("region", { name: /Сравнительный|Самостоятельное/ }).first()).toBeVisible();

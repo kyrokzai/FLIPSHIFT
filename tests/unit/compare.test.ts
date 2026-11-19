@@ -56,7 +56,7 @@ describe("сравнение кандидатов", () => {
   it("привлечение клиентов подтверждено выдержкой; отказ кандидата не считается опытом", () => {
     expect(cell(three, "prospecting", aidar.id)).toMatchObject({ value: "Указано в резюме", source: "resume" });
     expect(cell(three, "prospecting", aidar.id).excerpt).toContain("Самостоятельный поиск клиентов");
-    expect(cell(three, "prospecting", aliya.id).value).toBe("Кандидат пишет, что не занимался");
+    expect(cell(three, "prospecting", aliya.id).value).toBe("Кандидат указывает, что такого опыта нет");
   });
 
   it("достижения — только из резюме и помечены как непроверенные", () => {
